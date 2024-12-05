@@ -45,7 +45,7 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
     }
 
     function setSecondaryRoyaltyPercentage(uint256 share) public onlyRole(MINTER_ROLE) {
-        require(share < 10000, "Share must be less than 10000");
+        require(share <= 1000, "Percentage must be less than 1000");
         _secondaryRoyaltyPercentage = share;
     }
 
