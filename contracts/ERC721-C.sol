@@ -82,7 +82,7 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
         if(msg.value > royalties) {
             payable(_tokenOwners[tokenId]).transfer(msg.value - royalties);
         }
-        _transfer(address(this), msg.sender, tokenId);
+        _transfer(_tokenOwners[tokenId], msg.sender, tokenId);
         _tokenOwners[tokenId] = msg.sender;
     }
 
@@ -104,14 +104,14 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
     function distributeRoyalties(uint256 totalReceived, uint256 tokenId) public payable returns (uint256) {
         require(totalReceived > 0, "No funds to distribute");
         
-        uint sp = 10000;
+        uint256 sp = 10000;
         if(msg.sender != _tokenAuthors[tokenId] && _secondaryRoyaltyPercentage > 0) {
             sp = _secondaryRoyaltyPercentage;
         }
 
         uint256 totalDistributed = 0;
         for (uint256 i = 0; i < _royaltyReceivers.length; i++) {
-            uint256 share = _royaltyShares[i] * sp / 10000;
+            uint256 share = (_royaltyShares[i] * sp) / 10000;
             uint256 payment = (totalReceived * share) / 10000;
             payable(_royaltyReceivers[i]).transfer(payment);
             totalDistributed += payment;
