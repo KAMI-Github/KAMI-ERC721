@@ -54,6 +54,12 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
     // Event to emit when a rental ends
     event RentalEnded(uint256 indexed tokenId, address indexed renter);
 
+    // Event to emit when a token is minted
+    event Minted(uint256 indexed tokenId);
+
+    // Event to emit when a token is bought
+    event Bought(uint256 indexed tokenId, address indexed buyer);   
+
     // Add a state variable to keep track of the current token ID
     uint256 private _currentTokenId;
 
@@ -177,6 +183,7 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
             _tokenData[tokenId].authors.push(msg.sender);
         }
         _isSecondaryPurchase[tokenId] = false;
+        emit Minted(tokenId);
     }
 
     // Set the price of a token
@@ -218,6 +225,7 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
         _transfer(token.owner, msg.sender, tokenId);
         token.owner = msg.sender;
         _isSecondaryPurchase[tokenId] = true;
+        emit Bought(tokenId, msg.sender);
     }
 
     // Authorize contract upgrade
