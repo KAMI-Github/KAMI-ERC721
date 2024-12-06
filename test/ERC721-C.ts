@@ -4,7 +4,7 @@ import { ethers as ethersLib, BigNumberish, Contract } from 'ethers';
 import { Signer } from 'ethers';
 
 type ERC721C = Contract & {
-	mint: (to: string, tokenId: number, uri: string, price: BigNumberish) => Promise<any>;
+	mint: (to: string, uri: string, price: BigNumberish, collaborators: string[]) => Promise<any>;
 	distributeRoyalties: (options: { value: any }) => Promise<any>;
 	address: string;
 	getPrice: (tokenId: number) => Promise<ethersLib.BigNumberish>;
@@ -39,6 +39,7 @@ describe('ERC721CUpgradeable', function () {
 		const royaltyShares = [5000, 5000];
 		const secondaryRoyaltyPercentage = 500;
 
+		// Deploy ERC721CUpgradeable contract
 		const ERC721CFactory = await ethers.getContractFactory('ERC721CUpgradeable');
 		erc721c = (await upgrades.deployProxy(
 			ERC721CFactory,
@@ -54,8 +55,8 @@ describe('ERC721CUpgradeable', function () {
 
 		// Distribute some KamiUSD tokens to addr1 and addr2 for testing
 		await kamiUSD.transfer(await addr1.getAddress(), ethersLib.parseUnits('1000', 18));
-		await kamiUSD.transfer( await addr2.getAddress(), ethersLib.parseUnits( '1000', 18 ) );
-		console.log(await kamiUSD.connect(addr1).)
+		await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('1000', 18));
+		console.log(`KamiUSD balance of addr1: ${await kamiUSD.balanceOf(await addr1.getAddress())}`);
 	});
 
 	it('should assign roles correctly', async function () {
@@ -65,7 +66,9 @@ describe('ERC721CUpgradeable', function () {
 	});
 
 	it('should allow minting by minter', async function () {
-		await erc721c.mint(await addr1.getAddress(), 1, 'https://token-uri.com/1', ethersLib.parseUnits('1.0', 18));
+		await erc721c.mint(await addr1.getAddress(), 'https://token-uri.com/1', ethersLib.parseUnits('1.0', 18), [
+			await owner.getAddress(),
+		]);
 		expect(await erc721c.ownerOf(1)).to.equal(await addr1.getAddress());
 		expect(await erc721c.getPrice(1)).to.equal(ethersLib.parseUnits('1.0', 18));
 	});
@@ -76,8 +79,9 @@ describe('ERC721CUpgradeable', function () {
 	});
 
 	it('should not allow minting by non-minter', async function () {
-		expect(
-			await erc721c.mint(await addr1.getAddress(), 2, 'https://token-uri.com/2', ethersLib.parseUnits('1.0', 18))
+		const nft = (await erc721c.connect(addr2)) as ERC721C;
+		await expect(
+			nft.mint(await addr1.getAddress(), 'https://token-uri.com/2', ethersLib.parseUnits('1.0', 18), [await owner.getAddress()])
 		).to.be.revertedWith('AccessControl: account');
 	});
 
@@ -106,14 +110,19 @@ describe('ERC721CUpgradeable', function () {
 	});
 
 	it('should handle token purchase with KamiUSD', async function () {
-		await erc721c.mint(await addr1.getAddress(), 2, 'https://token-uri.com/2', ethersLib.parseUnits('1.0', 18));
-		await (erc721c.connect(addr1) as ERC721C).setPrice(2, ethersLib.parseUnits('1.0', 18));
+		await erc721c.mint(await addr1.getAddress(), 'https://token-uri.com/2', ethersLib.parseUnits('1.0', 18), [
+			await owner.getAddress(),
+		]);
+		const nft = (await erc721c.connect(addr1)) as ERC721C;
+		await nft.setPrice(2, ethersLib.parseUnits('1.0', 18));
 
 		// Approve ERC721 contract to spend KamiUSD on behalf of addr2
-		await (kamiUSD.connect(addr2) as KamiUSD).approve(erc721c.address, ethersLib.parseUnits('1.0', 18));
+		const kusd = (await kamiUSD.connect(addr2)) as KamiUSD;
+		await kusd.approve(erc721c.address, ethersLib.parseUnits('1.0', 18));
 
 		// Simulate token purchase
-		await (erc721c.connect(addr2) as ERC721C).buy(2);
+		const nft2 = (await erc721c.connect(addr2)) as ERC721C;
+		await nft2.buy(2);
 		expect(await erc721c.ownerOf(2)).to.equal(await addr2.getAddress());
 	});
 });

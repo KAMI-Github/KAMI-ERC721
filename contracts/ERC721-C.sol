@@ -20,25 +20,53 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
     address[] private _royaltyReceivers;
     uint256[] private _royaltyShares;
     uint256 private _secondaryRoyaltyPercentage;
+    
+    // Mapping to track if a token has been purchased by a secondary buyer
+    mapping(uint256 => bool) private _isSecondaryPurchase;
 
     // Mappings for token data
-    mapping(uint256 => string) private _tokenURIs;
-    mapping(uint256 => address) private _tokenAuthors;
-    mapping(uint256 => uint256) private _tokenPrices;
-    mapping(uint256 => address) private _tokenOwners;
+    struct TokenData {
+        string uri;
+        address[] authors;
+        uint256 price;
+        address owner;
+    }
+    mapping(uint256 => TokenData) private _tokenData;
+
+    // Maximum quantity of tokens that can be minted
+    uint256 maxQuantity;
 
     // ERC20 token used for payments
     IERC20 private _paymentToken;
+
+    // Define a structure to hold rental information
+    struct Rental {
+        address renter;
+        uint128 rentalEndTime;
+    }
+
+    // Mapping to store rental agreements
+    mapping(uint256 => Rental) private _rentals;
+
+    // Event to emit when a rental starts
+    event RentalUpdate(uint256 indexed tokenId, address indexed renter, uint128 rentalEndTime, bool isStart);
+
+    // Event to emit when a rental ends
+    event RentalEnded(uint256 indexed tokenId, address indexed renter);
+
+    // Add a state variable to keep track of the current token ID
+    uint256 private _currentTokenId;
 
     // Initialize the contract with necessary parameters
     /**
      * @dev Initializes the contract with the given parameters.
      * @param name The name of the token.
-     * @param symbol The symbol of the token.
+     * @param symbol The symbol of the token.   
      * @param royaltyReceivers The addresses that will receive royalties.
      * @param royaltyShares The shares of royalties for each receiver.
      * @param secondaryRoyaltyPercentage The percentage of royalties for secondary sales.
      * @param paymentTokenAddress The address of the ERC20 token used for payments.
+     * @param maxQty The maximum quantity of tokens that can be minted (default is 0 for unlimited).
      */
     function initialize(
         string memory name,
@@ -46,7 +74,8 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
         address[] memory royaltyReceivers,
         uint256[] memory royaltyShares,
         uint256 secondaryRoyaltyPercentage,
-        address paymentTokenAddress
+        address paymentTokenAddress,
+        uint256 maxQty
     ) public initializer {
         // Initialize inherited contracts
         __ERC721_init(name, symbol);
@@ -56,13 +85,16 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
         __AccessControl_init();
         __UUPSUpgradeable_init();
 
+        // Set maxQuantity, defaulting to zero if not provided
+        maxQuantity = maxQty;
+
         // Validate royalty shares
-        require(royaltyReceivers.length == royaltyShares.length, "Receivers and shares length mismatch");
+        if (royaltyReceivers.length != royaltyShares.length) revert SharesLengthMismatch();
         uint256 totalShares = 0;
         for (uint256 i = 0; i < royaltyShares.length; i++) {
             totalShares += royaltyShares[i];
         }
-        require(totalShares == 10000, "Total shares must be 10000");
+        if (totalShares != 10000) revert InvalidTotalShares();
 
         // Set royalty data
         _royaltyReceivers = royaltyReceivers;
@@ -105,20 +137,46 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
         AccessControlUpgradeable._grantRole(UPGRADER_ROLE, msg.sender);
     }
 
+    // Helper function to check if an address is in an array
+    /**
+     * @dev Checks if a given address is present in an array of addresses.
+     * @param array The array of addresses to search through.
+     * @param addr The address to check for in the array.
+     * @return True if the address is found in the array, false otherwise.
+     */
+    function _isAddressInArray(address[] memory array, address addr) internal pure returns (bool) {
+        for (uint256 i = 0; i < array.length; i++) {
+            if (array[i] == addr) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Mint a new token
     /**
      * @dev Mints a new token with the given parameters.
      * @param to The address to mint the token to.
-     * @param tokenId The ID of the token to mint.
      * @param uri The URI of the token.
-     * @param price The price of the token.
+     * @param price The price of the token. 
+     * @param collaborators The addresses of the collaborators.
      */
-    function mint(address to, uint256 tokenId, string memory uri, uint256 price) public onlyRole(MINTER_ROLE) {
+    function mint(address to, string memory uri, uint256 price, address[] memory collaborators) public onlyRole(MINTER_ROLE) {
+        // Check if the maximum quantity has been reached   
+        if (maxQuantity > 0 && _currentTokenId >= maxQuantity) revert MaxQuantityReached();
+
+        _currentTokenId++; // Use the current token ID
+        uint256 tokenId = _currentTokenId;
+
         _mint(to, tokenId);
-        _tokenURIs[tokenId] = uri;
-        _tokenAuthors[tokenId] = msg.sender;
-        _tokenPrices[tokenId] = price;
-        _tokenOwners[tokenId] = msg.sender;
+        _tokenData[tokenId].uri = uri;
+        _tokenData[tokenId].price = price;
+        _tokenData[tokenId].owner = msg.sender;
+        _tokenData[tokenId].authors = collaborators;
+        if (!_isAddressInArray(collaborators, msg.sender)) {
+            _tokenData[tokenId].authors.push(msg.sender);
+        }
+        _isSecondaryPurchase[tokenId] = false;
     }
 
     // Set the price of a token
@@ -128,7 +186,7 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
      * @param price The new price of the token.
      */
     function setPrice(uint256 tokenId, uint256 price) public onlyRole(MINTER_ROLE) {
-        _tokenPrices[tokenId] = price;
+        _tokenData[tokenId].price = price;
     }
 
     // Get the price of a token
@@ -138,7 +196,7 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
      * @return The current price of the token.
      */
     function getPrice(uint256 tokenId) public view returns (uint256) {
-        return _tokenPrices[tokenId];
+        return _tokenData[tokenId].price;
     }
 
     // Buy a token
@@ -147,16 +205,19 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
      * @param tokenId The ID of the token to buy.
      */
     function buy(uint256 tokenId) public {
-        require(_tokenPrices[tokenId] > 0, "Token not for sale");
-        uint256 price = _tokenPrices[tokenId];
-        require(_paymentToken.transferFrom(msg.sender, address(this), price), "Token transfer failed");
-
-        uint256 royalties = distributeRoyalties(price, tokenId);
-        if(price > royalties) {
-            require(_paymentToken.transfer(_tokenOwners[tokenId], price - royalties), "Token transfer to owner failed");
+        TokenData storage token = _tokenData[tokenId];
+        if (token.price == 0) revert TokenNotForSale();
+        
+        if (!_paymentToken.transferFrom(msg.sender, address(this), token.price)) revert TransferFailed();
+        
+        uint256 royalties = distributeRoyalties(token.price, tokenId);
+        if(token.price > royalties) {
+            if (!_paymentToken.transfer(token.owner, token.price - royalties)) revert TransferFailed();
         }
-        _transfer(_tokenOwners[tokenId], msg.sender, tokenId);
-        _tokenOwners[tokenId] = msg.sender;
+        
+        _transfer(token.owner, msg.sender, tokenId);
+        token.owner = msg.sender;
+        _isSecondaryPurchase[tokenId] = true;
     }
 
     // Authorize contract upgrade
@@ -204,21 +265,20 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
      * @return The total amount distributed as royalties.
      */
     function distributeRoyalties(uint256 totalReceived, uint256 tokenId) public returns (uint256) {
-        require(totalReceived > 0, "No funds to distribute");
+        if (totalReceived == 0) revert NoFundsToDistribute();
         
-        uint256 sp = 10000;
-        if(msg.sender != _tokenAuthors[tokenId] && _secondaryRoyaltyPercentage > 0) {
-            sp = _secondaryRoyaltyPercentage;
+        uint256 sp = _isSecondaryPurchase[tokenId] ? 
+            (_secondaryRoyaltyPercentage > 0 ? _secondaryRoyaltyPercentage : 0) : 
+            10000;
+        
+        uint256 totalDistributed;
+        unchecked {  // Safe because shares are validated in initialize
+            for (uint256 i; i < _royaltyReceivers.length; ++i) {
+                uint256 payment = (totalReceived * (_royaltyShares[i] * sp)) / 1e8;
+                if (!_paymentToken.transfer(_royaltyReceivers[i], payment)) revert TransferFailed();
+                totalDistributed += payment;
+            }
         }
-
-        uint256 totalDistributed = 0;
-        for (uint256 i = 0; i < _royaltyReceivers.length; i++) {
-            uint256 share = (_royaltyShares[i] * sp) / 10000;
-            uint256 payment = (totalReceived * share) / 10000;
-            require(_paymentToken.transfer(_royaltyReceivers[i], payment), "Token transfer to royalty receiver failed");
-            totalDistributed += payment;
-        }
-
         return totalDistributed;
     }
 
@@ -228,13 +288,13 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
      * @param to The address to transfer the token to.
      * @param tokenId The ID of the token.
      * @param auth The address of the author.
-     * @return The address of the previous owner.
      */
     function _update(
         address to,
         uint256 tokenId,
         address auth
     ) internal virtual override(ERC721Upgradeable, ERC721EnumerableUpgradeable) returns (address) {
+        if (isRented(tokenId)) revert TokenRented();
         return super._update(to, tokenId, auth);
     }
 
@@ -250,4 +310,59 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
     ) internal virtual override(ERC721Upgradeable, ERC721EnumerableUpgradeable) {
         super._increaseBalance(account, value);
     }
+
+    // Function to start a rental
+    /**
+     * @dev Starts a rental for a given token.
+     * @param tokenId The ID of the token to rent.
+     * @param renter The address of the renter.
+     * @param duration The duration of the rental in seconds.
+     */
+    function startRental(uint256 tokenId, address renter, uint256 duration) public onlyRole(MINTER_ROLE) {
+        require(ownerOf(tokenId) == msg.sender, "Only the owner can rent out the token");
+        require(_rentals[tokenId].renter == address(0), "Token is already rented");
+
+        uint128 rentalEndTime = uint128(block.timestamp) + uint128(duration);
+        _rentals[tokenId] = Rental(renter, rentalEndTime);
+
+        emit RentalUpdate(tokenId, renter, rentalEndTime, true);
+    }
+
+    // Function to end a rental
+    /**
+     * @dev Ends a rental for a given token.
+     * @param tokenId The ID of the token to end the rental for.
+     */
+    function endRental(uint256 tokenId) public {
+        require(_rentals[tokenId].renter == msg.sender || ownerOf(tokenId) == msg.sender, "Only the renter or owner can end the rental");
+        require(_rentals[tokenId].renter != address(0), "Token is not rented");
+
+        address renter = _rentals[tokenId].renter;
+        delete _rentals[tokenId];
+
+        emit RentalEnded(tokenId, renter);
+    }
+
+    // Function to check if a token is rented
+    /**
+     * @dev Checks if a token is currently rented.
+     * @param tokenId The ID of the token.
+     * @return True if the token is rented, false otherwise.
+     */
+    function isRented(uint256 tokenId) public view returns (bool) {
+        Rental storage rental = _rentals[tokenId];
+        return rental.renter != address(0) && rental.rentalEndTime > uint128(block.timestamp);
+    }
+
+    // Custom errors
+    error TokenRented();
+    error NotAuthorized();
+    error InvalidRoyalties();
+    error SharesLengthMismatch();
+    error InvalidTotalShares();
+    error NoFundsToDistribute();
+    error TransferFailed();
+    error TokenNotForSale();
+    error InvalidPrice();
+    error MaxQuantityReached();
 }
