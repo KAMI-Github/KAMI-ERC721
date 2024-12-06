@@ -159,6 +159,24 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
         return false;
     }
 
+    // Get the current token ID
+    /**
+     * @dev Returns the current token ID.
+     * @return The current token ID.
+     */
+    function getCurrentTokenId() public view returns (uint256) {
+        return _currentTokenId;
+    }
+
+    // Get the maximum quantity of tokens that can be minted
+    /**
+     * @dev Returns the maximum quantity of tokens that can be minted.
+     * @return The maximum quantity of tokens that can be minted.
+     */
+    function getMaxQuantity() public view returns (uint256) {
+        return maxQuantity;
+    }   
+
     // Mint a new token
     /**
      * @dev Mints a new token with the given parameters.
@@ -167,7 +185,7 @@ contract ERC721CUpgradeable is ERC721Upgradeable, ERC721URIStorageUpgradeable, E
      * @param price The price of the token. 
      * @param collaborators The addresses of the collaborators.
      */
-    function mint(address to, string memory uri, uint256 price, address[] memory collaborators) public onlyRole(MINTER_ROLE) {
+    function mint(address to, string memory uri, uint256 price, address[] memory collaborators) public  { // onlyRole(MINTER_ROLE)
         // Check if the maximum quantity has been reached   
         if (maxQuantity > 0 && _currentTokenId >= maxQuantity) revert MaxQuantityReached();
 
