@@ -15,6 +15,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     // Define roles for access control
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+    bytes32 public constant PRICE_SETTER_ROLE = keccak256("PRICE_SETTER_ROLE");
 
     // State variables for royalty management
     address[] private _royaltyReceivers;
@@ -62,6 +63,9 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
 
     // Add a state variable to keep track of the current token ID
     uint256 private _currentTokenId;
+
+    // Event for royalty distribution
+    event RoyaltyDistributed(uint256 indexed tokenId, address receiver, uint256 amount);
 
     // Initialize the contract with necessary parameters
     /**
@@ -141,6 +145,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         AccessControlUpgradeable._grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         AccessControlUpgradeable._grantRole(MINTER_ROLE, msg.sender);
         AccessControlUpgradeable._grantRole(UPGRADER_ROLE, msg.sender);
+        AccessControlUpgradeable._grantRole(PRICE_SETTER_ROLE, msg.sender);
     }
 
     // Helper function to check if an address is in an array
@@ -210,7 +215,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @param tokenId The ID of the token.
      * @param price The new price of the token.
      */
-    function setPrice(uint256 tokenId, uint256 price) public onlyRole(MINTER_ROLE) {
+    function setPrice(uint256 tokenId, uint256 price) public onlyRole(PRICE_SETTER_ROLE) {
         _tokenData[tokenId].price = price;
     }
 
@@ -233,14 +238,17 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         TokenData storage token = _tokenData[tokenId];
         if (token.price == 0) revert TokenNotForSale();
         
+        address currentOwner = ownerOf(tokenId); // Get the current owner from ERC721
+        if (currentOwner == address(0)) revert TokenNotForSale();
+        
         if (!_paymentToken.transferFrom(msg.sender, address(this), token.price)) revert TransferFailed();
         
         uint256 royalties = distributeRoyalties(token.price, tokenId);
         if(token.price > royalties) {
-            if (!_paymentToken.transfer(token.owner, token.price - royalties)) revert TransferFailed();
+            if (!_paymentToken.transfer(currentOwner, token.price - royalties)) revert TransferFailed();
         }
         
-        _transfer(token.owner, msg.sender, tokenId);
+        _transfer(currentOwner, msg.sender, tokenId);
         token.owner = msg.sender;
         _isSecondaryPurchase[tokenId] = true;
         emit Bought(tokenId, msg.sender);
@@ -290,19 +298,22 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @param tokenId The ID of the token sold.
      * @return The total amount distributed as royalties.
      */
-    function distributeRoyalties(uint256 totalReceived, uint256 tokenId) public returns (uint256) {
+    function distributeRoyalties(uint256 totalReceived, uint256 tokenId) internal returns (uint256) {
         if (totalReceived == 0) revert NoFundsToDistribute();
         
+        // Calculate percentage for primary/secondary sale
         uint256 sp = _isSecondaryPurchase[tokenId] ? 
             (_secondaryRoyaltyPercentage > 0 ? _secondaryRoyaltyPercentage : 0) : 
-            10000;
+            1;
         
         uint256 totalDistributed;
         unchecked {  // Safe because shares are validated in initialize
             for (uint256 i; i < _royaltyReceivers.length; ++i) {
-                uint256 payment = (totalReceived * (_royaltyShares[i] * sp)) / 1e8;
+                // Reorder multiplication to minimize precision loss
+                uint256 payment = (totalReceived * ((_royaltyShares[i] * sp)/10000)) / 10000;
                 if (!_paymentToken.transfer(_royaltyReceivers[i], payment)) revert TransferFailed();
                 totalDistributed += payment;
+                emit RoyaltyDistributed(tokenId, _royaltyReceivers[i], payment);
             }
         }
         return totalDistributed;
