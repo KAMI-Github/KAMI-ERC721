@@ -12,6 +12,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 // ERC721CUpgradeable contract definition
 contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721BurnableUpgradeable, ERC721EnumerableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
+
     // Define roles for access control
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
