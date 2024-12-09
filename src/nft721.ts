@@ -32,6 +32,7 @@ class NFT721 {
 
 	constructor(providerUrl: string, privateKey: string) {
 		this.provider = new ethers.JsonRpcProvider(providerUrl);
+		// Ensure no ENS operations are being performed here
 		this.wallet = new ethers.Wallet(privateKey, this.provider);
 		this.contract = new ethers.Contract(NFT721.CONTRACT_ADDRESS, CONTRACT_ABI, this.wallet);
 	}

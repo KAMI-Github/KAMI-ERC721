@@ -1,8 +1,8 @@
 import NFT721 from './nft721';
 
-const address = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
-const pk = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-const providerUrl = 'http://localhost:8545';
+const address = '0x16c607Dbe5e4959B159510C63925051e31d2E0A6';
+const pk = '21a60c30d07a1e0483c8547b72217ea08a427f95d2503d78f3fd1a54b8527021';
+const providerUrl = 'https://testnet.skalenodes.com/v1/giant-half-dual-testnet';
 
 async function main() {
 	const nft = new NFT721(providerUrl, pk);
