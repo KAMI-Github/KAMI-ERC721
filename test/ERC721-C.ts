@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 import { ethers, upgrades } from 'hardhat';
-import { ethers as ethersLib, BigNumberish, Contract } from 'ethers';
-import { Signer } from 'ethers';
+import { ethers as ethersLib, BigNumberish, Contract, Signer } from 'ethers';
 
 type ERC721C = Contract & {
 	mint: (to: string, uri: string, price: BigNumberish, collaborators: string[]) => Promise<any>;
@@ -31,7 +30,7 @@ describe('ERC721CUpgradeable', function () {
 
 		// Deploy KamiUSD token
 		const KamiUSDFactory = await ethers.getContractFactory('KamiUSD');
-		kamiUSD = ((await KamiUSDFactory.deploy()) as unknown) as KamiUSD;
+		kamiUSD = (await KamiUSDFactory.deploy()) as unknown as KamiUSD;
 		await kamiUSD.waitForDeployment();
 
 		const royaltyReceivers = [await addr1.getAddress(), await addr2.getAddress()];
@@ -40,27 +39,31 @@ describe('ERC721CUpgradeable', function () {
 
 		// Deploy ERC721CUpgradeable contract
 		const ERC721CFactory = await ethers.getContractFactory('ERC721C');
-		erc721c = (await upgrades.deployProxy(
-			ERC721CFactory,
-			['TestToken', 'TTK', royaltyReceivers, royaltyShares, secondaryRoyaltyPercentage, await kamiUSD.getAddress(), 10],
-			{
-				initializer: 'initialize',
-			}
-		)) as typeof erc721c;
+		erc721c = (await upgrades.deployProxy(ERC721CFactory, ['TestToken', 'TTK'], {
+			initializer: 'initialize',
+		})) as typeof erc721c;
 		await erc721c.waitForDeployment();
 
 		await erc721c.grantRole(await erc721c.MINTER_ROLE(), await owner.getAddress());
 		await erc721c.grantRole(await erc721c.UPGRADER_ROLE(), await owner.getAddress());
+		await erc721c.grantRole(await erc721c.PRICE_SETTER_ROLE(), await owner.getAddress());
+
+		await erc721c.setRoyaltyReceivers(royaltyReceivers, royaltyShares);
+		await erc721c.setSecondaryRoyaltyPercentage(secondaryRoyaltyPercentage);
+		await erc721c.setPaymentToken(await kamiUSD.getAddress());
+		await erc721c.setMaxQuantity(10);
 
 		// Distribute some KamiUSD tokens to addr1 and addr2 for testing
 		await kamiUSD.transfer(await addr1.getAddress(), ethersLib.parseUnits('10000', 18));
 		await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('10000', 18));
+		await kamiUSD.transfer(await erc721c.getAddress(), ethersLib.parseUnits('100', 18));
 	});
 
 	it('should assign roles correctly', async function () {
 		expect(await erc721c.hasRole(await erc721c.DEFAULT_ADMIN_ROLE(), await owner.getAddress())).to.be.true;
 		expect(await erc721c.hasRole(await erc721c.MINTER_ROLE(), await owner.getAddress())).to.be.true;
 		expect(await erc721c.hasRole(await erc721c.UPGRADER_ROLE(), await owner.getAddress())).to.be.true;
+		expect(await erc721c.hasRole(await erc721c.PRICE_SETTER_ROLE(), await owner.getAddress())).to.be.true;
 	});
 
 	it('should allow minting by minter', async function () {
@@ -78,19 +81,26 @@ describe('ERC721CUpgradeable', function () {
 	// 	).to.be.revertedWith('AccessControl: account');
 	// });
 
-	// it('should distribute royalties correctly', async function () {
-	// 	const initialBalance1 = await ethers.provider.getBalance(await addr1.getAddress());
-	// 	const initialBalance2 = await ethers.provider.getBalance(await addr2.getAddress());
+	it('should distribute royalties correctly', async function () {
+		// console.log('Payment Token Address:', await erc721c.getPaymentToken());
 
-	// 	const v = ethersLib.parseUnits('1.0', 18);
-	// 	await (erc721c.connect(owner) as ERC721C).distributeRoyalties(v, 1);
+		const initialBalance1 = await ethers.provider.getBalance(await addr1.getAddress());
+		const initialBalance2 = await ethers.provider.getBalance(await addr2.getAddress());
 
-	// 	const finalBalance1 = await ethers.provider.getBalance(await addr1.getAddress());
-	// 	const finalBalance2 = await ethers.provider.getBalance(await addr2.getAddress());
-	// 	console.log(finalBalance1, finalBalance2);
-	// 	expect(finalBalance1 - initialBalance1).to.equal(ethersLib.parseUnits('0.5', 18));
-	// 	expect(finalBalance2 - initialBalance2).to.equal(ethersLib.parseUnits('0.5', 18));
-	// });
+		const v = ethersLib.parseUnits('10', 18);
+		const amts = await (erc721c.connect(owner) as ERC721C).distributeRoyaltiesTest(v, 1);
+
+		// console.log(
+		// 	'AMTS',
+		// 	amts.map((a) => Number(a.toString()) / 10 ** 18)
+		// );
+
+		expect(amts.length).to.equal(4);
+		expect(amts[0].toString()).to.equal(ethersLib.parseUnits('5', 18).toString());
+		expect(amts[1].toString()).to.equal(ethersLib.parseUnits('5', 18).toString());
+		expect(amts[2].toString()).to.equal(ethersLib.parseUnits('10', 18).toString());
+		expect(amts[3].toString()).to.equal(ethersLib.parseUnits('0', 18).toString());
+	});
 
 	it('should allow upgrades by upgrader', async function () {
 		const ERC721CUpgradeableV2 = await ethers.getContractFactory('ERC721C');

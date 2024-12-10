@@ -1,17 +1,25 @@
+import { config } from 'dotenv';
 import NFT721 from './nft721';
 
-const address = '0x16c607Dbe5e4959B159510C63925051e31d2E0A6';
-const pk = '21a60c30d07a1e0483c8547b72217ea08a427f95d2503d78f3fd1a54b8527021';
-const providerUrl = 'https://testnet.skalenodes.com/v1/giant-half-dual-testnet';
+config();
+
+const pk = process.env.KAMI_PRIVATE_KEY ?? '';
+const providerUrl = process.env.RPC_URL ?? 'http://localhost:8545';
+let paymentTokenAddress = process.env.KAMI_USD_ADDRESS;
 
 async function main() {
+	console.log(`Using provider ${providerUrl}`);
 	const nft = new NFT721(providerUrl, pk);
-	const paymentTokenAddress = await nft.deployKamiUSDToken();
-	const proxyAddress = await nft.deployProxyContract();
-	NFT721.CONTRACT_ADDRESS = proxyAddress;
-	await nft.initialize('Test', 'TEST', [address], [100], 10, paymentTokenAddress, 0);
-	await nft.mint(address, 'https://paulstinchcombe.com', 1e18, [address]);
-	console.log(await nft.getCurrentTokenId());
+	console.log(`Wallet address: ${nft.walletAddress}`);
+
+	if (!paymentTokenAddress) paymentTokenAddress = await nft.deployKamiUSDToken();
+	console.log(`Payment token address: ${paymentTokenAddress}`);
+
+	const proxyAddress = await nft.deployProxyContract('Test', 'TEST', [nft.walletAddress], [10000], 1000, paymentTokenAddress, 0);
+	console.log(`Proxy contract address: ${proxyAddress}`);
+
+	await nft.mint(nft.walletAddress, 'https://paulstinchcombe.com', 1e18, [nft.walletAddress]);
+	console.log(`Current token id: ${await nft.getCurrentTokenId()}`);
 }
 
 main();

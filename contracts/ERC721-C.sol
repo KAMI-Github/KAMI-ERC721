@@ -68,25 +68,20 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     // Event for royalty distribution
     event RoyaltyDistributed(uint256 indexed tokenId, address receiver, uint256 amount);
 
+    // Add debugging events
+    event DebugTotalReceived(uint256 totalReceived);
+    event DebugRoyaltyShare(uint256 index, uint256 share, uint256 payment);
+    event DebugSecondaryPurchase(bool isSecondary, uint256 sp);
+
     // Initialize the contract with necessary parameters
     /**
      * @dev Initializes the contract with the given parameters.
      * @param name The name of the token.
      * @param symbol The symbol of the token.   
-     * @param royaltyReceivers The addresses that will receive royalties.
-     * @param royaltyShares The shares of royalties for each receiver.
-     * @param secondaryRoyaltyPercentage The percentage of royalties for secondary sales.
-     * @param paymentTokenAddress The address of the ERC20 token used for payments.
-     * @param maxQty The maximum quantity of tokens that can be minted (default is 0 for unlimited).
      */
     function initialize(
         string memory name,
-        string memory symbol,
-        address[] memory royaltyReceivers,
-        uint256[] memory royaltyShares,
-        uint256 secondaryRoyaltyPercentage,
-        address paymentTokenAddress,
-        uint256 maxQty
+        string memory symbol
     ) public initializer {
         // Initialize inherited contracts
         __ERC721_init(name, symbol);
@@ -95,29 +90,67 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         __ERC721Enumerable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
+        
+        // Setup roles for access control
+        AccessControlUpgradeable._grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        AccessControlUpgradeable._grantRole(MINTER_ROLE, msg.sender);
+        AccessControlUpgradeable._grantRole(UPGRADER_ROLE, msg.sender);
+        AccessControlUpgradeable._grantRole(PRICE_SETTER_ROLE, msg.sender);
+    }
 
-        // Set maxQuantity, defaulting to zero if not provided
+    function setPaymentToken(address paymentTokenAddress) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _paymentToken = IERC20(paymentTokenAddress);
+    }
+
+    function getPaymentToken() public view returns (address) {
+        return address(_paymentToken);
+    }
+
+    function setMaxQuantity(uint256 maxQty) public onlyRole(DEFAULT_ADMIN_ROLE) {
         maxQuantity = maxQty;
+    }
 
-        // Validate royalty shares
-        if (royaltyReceivers.length != royaltyShares.length) revert SharesLengthMismatch();
-        uint256 totalShares = 0;
-        for (uint256 i = 0; i < royaltyShares.length; i++) {
-            totalShares += royaltyShares[i];
-        }
-        if (totalShares != 10000) revert InvalidTotalShares();
+    // Get the maximum quantity of tokens that can be minted
+    /**
+     * @dev Returns the maximum quantity of tokens that can be minted.
+     * @return The maximum quantity of tokens that can be minted.
+     */
+    function getMaxQuantity() public view returns (uint256) {
+        return maxQuantity;
+    }   
 
-        // Set royalty data
+    // Set the royalty receivers and shares
+    /**
+     * @dev Sets the royalty receivers and shares.
+     * @param royaltyReceivers The addresses that will receive royalties.
+     * @param royaltyShares The shares of royalties for each receiver.
+     */ 
+    function setRoyaltyReceivers(address[] memory royaltyReceivers, uint256[] memory royaltyShares) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _royaltyReceivers = royaltyReceivers;
         _royaltyShares = royaltyShares;
-        _secondaryRoyaltyPercentage = secondaryRoyaltyPercentage;
-
-        // Set payment token
-        _paymentToken = IERC20(paymentTokenAddress);
-
-        // Setup roles for access control
-        setupRoles();
     }
+
+    // Get the royalty receivers
+    /**
+     * @dev Returns the royalty receivers.
+     * @return The addresses that will receive royalties.
+     */
+    function getRoyaltyReceivers() public view returns (address[] memory) {
+        return _royaltyReceivers;
+    }   
+
+    // Get the royalty shares
+    /**
+     * @dev Returns the royalty shares.
+     * @return The shares of royalties for each receiver.
+     */
+    function getRoyaltyShares() public view returns (uint256[] memory) {
+        return _royaltyShares;
+    }
+
+    function getRoaltyShareForReceiver(uint256 index) public view returns (uint256) {
+        return _royaltyShares[index];
+    }   
 
     // Set the secondary royalty percentage
     /**
@@ -138,16 +171,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         return _secondaryRoyaltyPercentage;
     }
 
-    // Setup roles for access control
-    /**
-     * @dev Internal function to setup roles for access control.
-     */
-    function setupRoles() internal {
-        AccessControlUpgradeable._grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        AccessControlUpgradeable._grantRole(MINTER_ROLE, msg.sender);
-        AccessControlUpgradeable._grantRole(UPGRADER_ROLE, msg.sender);
-        AccessControlUpgradeable._grantRole(PRICE_SETTER_ROLE, msg.sender);
-    }
+
 
     // Helper function to check if an address is in an array
     /**
@@ -174,14 +198,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         return _currentTokenId;
     }
 
-    // Get the maximum quantity of tokens that can be minted
-    /**
-     * @dev Returns the maximum quantity of tokens that can be minted.
-     * @return The maximum quantity of tokens that can be minted.
-     */
-    function getMaxQuantity() public view returns (uint256) {
-        return maxQuantity;
-    }   
+
 
     // Mint a new token
     /**
@@ -299,26 +316,71 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @param tokenId The ID of the token sold.
      * @return The total amount distributed as royalties.
      */
-    function distributeRoyalties(uint256 totalReceived, uint256 tokenId) internal returns (uint256) {
+    function distributeRoyalties(uint256 totalReceived, uint256 tokenId) public returns (uint256) {
         if (totalReceived == 0) revert NoFundsToDistribute();
         
+        // Emit debug event for total received
+        emit DebugTotalReceived(totalReceived);
+
         // Calculate percentage for primary/secondary sale
         uint256 sp = _isSecondaryPurchase[tokenId] ? 
             (_secondaryRoyaltyPercentage > 0 ? _secondaryRoyaltyPercentage : 0) : 
             1;
         
-        uint256 totalDistributed;
+        // Emit debug event for secondary purchase
+        emit DebugSecondaryPurchase(_isSecondaryPurchase[tokenId], sp);
+
+        uint256 totalDistributed = 0;
         unchecked {  // Safe because shares are validated in initialize
             for (uint256 i; i < _royaltyReceivers.length; ++i) {
                 // Reorder multiplication to minimize precision loss
                 uint256 payment = (totalReceived * ((_royaltyShares[i] * sp)/10000)) / 10000;
-                if (!_paymentToken.transfer(_royaltyReceivers[i], payment)) revert TransferFailed();
+                
+                // Emit debug event for each royalty share
+                emit DebugRoyaltyShare(i, _royaltyShares[i], payment);
+
+                // Check if the transfer was successful
+                bool success = _paymentToken.transferFrom(address(this), _royaltyReceivers[i], payment);
+                if (!success) revert TransferFailed();
+
                 totalDistributed += payment;
                 emit RoyaltyDistributed(tokenId, _royaltyReceivers[i], payment);
             }
         }
         return totalDistributed;
     }
+
+    // Distribute royalties to receivers
+    /**
+     * @dev Distributes royalties to the royalty receivers.
+     * @param totalReceived The total amount received from the sale.
+     * @param tokenId The ID of the token sold.
+     * @return The total amount distributed as royalties.
+     */
+    function distributeRoyaltiesTest(uint256 totalReceived, uint256 tokenId) public view returns (uint256[] memory) {
+        if (totalReceived == 0) revert NoFundsToDistribute();
+        
+        uint256[] memory payments = new uint256[](_royaltyReceivers.length + 2);
+
+        // Calculate percentage for primary/secondary sale
+        uint256 sp = _isSecondaryPurchase[tokenId] ? _secondaryRoyaltyPercentage : 0;
+        
+
+        uint256 totalDistributed = 0;
+        unchecked {  // Safe because shares are validated in initialize
+            for (uint256 i; i < _royaltyReceivers.length; ++i) {
+                uint256 payment;
+                if(sp > 0) payment = (totalReceived * ((_royaltyShares[i] * sp)/10000)) / 10000;
+                else payment = (totalReceived * _royaltyShares[i] ) /10000;
+                totalDistributed += payment;
+                payments[i] = payment;
+            }
+        }
+        payments[_royaltyReceivers.length] = totalDistributed;
+        payments[_royaltyReceivers.length+1] = sp;
+        return payments;
+    }
+
 
     // Override _update function for ERC721Enumerable
     /**
