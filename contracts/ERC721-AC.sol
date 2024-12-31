@@ -246,7 +246,7 @@ contract ERC721AC is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burna
     function claim(address to) public  { 
         // Check if the maximum quantity has been reached   
         if (_maxQuantity > 0 && _totalTokens >= _maxQuantity) revert MaxQuantityReached();
-
+        
         // Increment total tokens when minting
         _totalTokens++;
 

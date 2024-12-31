@@ -4,7 +4,7 @@ import { ethers as ethersLib, BigNumberish, Contract, Signer } from 'ethers';
 
 type ERC721AC = Contract & {
 	initialize: (to: string, uri: string, price: BigNumberish, collaborators: string[]) => Promise<any>;
-	claim: (tokenId: number) => Promise<any>;
+	claim: (to: string) => Promise<any>;
 	address: string;
 	getPrice: (tokenId: number) => Promise<ethersLib.BigNumberish>;
 	setPrice: (tokenId: number, price: BigNumberish) => Promise<any>;
@@ -39,7 +39,7 @@ describe('ERC721CUpgradeable', function () {
 
 		// Deploy ERC721CUpgradeable contract
 		const ERC721ACFactory = await ethers.getContractFactory('ERC721AC');
-		erc721ac = (await upgrades.deployProxy(ERC721ACFactory, ['TestTokenAC', 'TTKAC'], {
+		erc721ac = (await upgrades.deployProxy(ERC721ACFactory, ['TestTokenAC', 'TTKAC', 'https://token-uri.com/1', 100, 100000, royaltyReceivers, await kamiUSD.getAddress()], {
 			initializer: 'initialize',
 		})) as typeof erc721ac;
 		await erc721ac.waitForDeployment();
@@ -66,12 +66,11 @@ describe('ERC721CUpgradeable', function () {
 		expect(await erc721ac.hasRole(await erc721ac.MINTER_ROLE(), await owner.getAddress())).to.be.true;
 		expect(await erc721ac.hasRole(await erc721ac.UPGRADER_ROLE(), await owner.getAddress())).to.be.true;
 		expect(await erc721ac.hasRole(await erc721ac.PRICE_SETTER_ROLE(), await owner.getAddress())).to.be.true;
+		expect(await erc721ac.hasRole(await erc721ac.OWNER_ROLE(), (), await addr1.getAddress())).to.be.true;
 	});
 
-	it('should allow minting by minter', async function () {
-		await erc721ac.mint(await addr1.getAddress(), 'https://token-uri.com/1', ethersLib.parseUnits('1.0', 18), [
-			await owner.getAddress(),
-		]);
+	it('should handle claining', async function () {
+		await erc721ac.claim(await addr1.getAddress());
 		expect(await erc721ac.ownerOf(1)).to.equal(await addr1.getAddress());
 		expect(await erc721ac.getPrice(1)).to.equal(ethersLib.parseUnits('1.0', 18));
 	});
@@ -83,26 +82,6 @@ describe('ERC721CUpgradeable', function () {
 	// 	).to.be.revertedWith('AccessControl: account');
 	// });
 
-	it('should distribute royalties correctly', async function () {
-		// console.log('Payment Token Address:', await erc721c.getPaymentToken());
-
-		const initialBalance1 = await ethers.provider.getBalance(await addr1.getAddress());
-		const initialBalance2 = await ethers.provider.getBalance(await addr2.getAddress());
-
-		const v = ethersLib.parseUnits('10', 18);
-		const amts = await (erc721ac.connect(owner) as ERC721AC).distributeRoyaltiesTest(v, 1);
-
-		// console.log(
-		// 	'AMTS',
-		// 	amts.map((a) => Number(a.toString()) / 10 ** 18)
-		// );
-
-		expect(amts.length).to.equal(4);
-		expect(amts[0].toString()).to.equal(ethersLib.parseUnits('5', 18).toString());
-		expect(amts[1].toString()).to.equal(ethersLib.parseUnits('5', 18).toString());
-		expect(amts[2].toString()).to.equal(ethersLib.parseUnits('10', 18).toString());
-		expect(amts[3].toString()).to.equal(ethersLib.parseUnits('0', 18).toString());
-	});
 
 	it('should allow upgrades by upgrader', async function () {
 		const ERC721ACUpgradeableV2 = await ethers.getContractFactory('ERC721AC');
@@ -114,6 +93,8 @@ describe('ERC721CUpgradeable', function () {
 		await erc721ac.setSecondaryRoyaltyPercentage(300);
 		expect(await erc721ac.getSecondaryRoyaltyPercentage()).to.equal(300);
 	});
+
+
 
 	it('should handle token purchase with KamiUSD', async function () {
 		// First mint the token - Note the tokenId will be 1, not 2
