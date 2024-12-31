@@ -12,15 +12,15 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "./lib/KamiUtilities.sol";
 
-
 // ERC721CUpgradeable contract definition
-contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721BurnableUpgradeable, ERC721EnumerableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
+contract ERC721AC is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721BurnableUpgradeable, ERC721EnumerableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
 
     // Define roles for access control
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
     bytes32 public constant PRICE_SETTER_ROLE = keccak256("PRICE_SETTER_ROLE");
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
+
     // State variables for royalty management
     address[] private _royaltyReceivers;
     uint256[] private _royaltyShares;
@@ -29,7 +29,15 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     // Mapping to track if a token has been purchased by a secondary buyer
     mapping(uint256 => bool) private _isSecondaryPurchase;
 
-    // Mappings for token data
+    // Initial Token Data
+    struct InitialTokenData {
+        string uri;
+        uint256 price;
+        address[] authors;
+    }
+    InitialTokenData private _initialTokenData;
+
+    // Mapping for token data
     struct TokenData {
         string uri;
         address[] authors;
@@ -39,10 +47,13 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     mapping(uint256 => TokenData) private _tokenData;
 
     // Maximum quantity of tokens that can be minted
-    uint256 maxQuantity;
+    uint256 private _maxQuantity;
 
     // ERC20 token used for payments
     IERC20 private _paymentToken;
+
+    // Add this state variable near the top with other state variables
+    uint256 private _totalTokens;
 
     // Define a structure to hold rental information
     struct Rental {
@@ -76,6 +87,9 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     event DebugRoyaltyShare(uint256 index, uint256 share, uint256 payment);
     event DebugSecondaryPurchase(bool isSecondary, uint256 sp);
 
+    // Event to emit when a token is claimed
+    event Claimed(uint256 indexed tokenId);
+
     // Custom errors
     error TokenRented();
     error NotAuthorized();
@@ -90,6 +104,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     error TokenAlreadyOwned();
     error InsufficientFunds();
 
+
     // Initialize the contract with necessary parameters
     /**
      * @dev Initializes the contract with the given parameters.
@@ -98,7 +113,12 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      */
     function initialize(
         string memory name,
-        string memory symbol
+        string memory symbol,
+        string memory uri,
+        uint256 maxQuantity,
+        uint256 price,
+        address[] memory collaborators,
+        address paymentTokenAddress
     ) public initializer {
         // Initialize inherited contracts
         __ERC721_init(name, symbol);
@@ -113,9 +133,26 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         AccessControlUpgradeable._grantRole(MINTER_ROLE, msg.sender);
         AccessControlUpgradeable._grantRole(UPGRADER_ROLE, msg.sender);
         AccessControlUpgradeable._grantRole(PRICE_SETTER_ROLE, msg.sender);
+        AccessControlUpgradeable._grantRole(OWNER_ROLE, msg.sender);
 
+        // Set the payment token
+        setPaymentToken(paymentTokenAddress);
+
+        // Set the initial token ID 
         _currentTokenId = 0;
-        maxQuantity = 1;        
+
+        // Set the maximum quantity of tokens
+        _maxQuantity = maxQuantity;        
+
+        // Set the initial token data (copied to every new token)
+        _initialTokenData.price = price;
+        _initialTokenData.authors = collaborators;
+        _initialTokenData.uri = uri;
+        
+        // Add the sender to the authors array if they are not already in it
+        if (!KamiUtilities._isAddressInArray(collaborators, msg.sender)) {
+            _initialTokenData.authors.push(msg.sender);
+        }
     }
 
     function setPaymentToken(address paymentTokenAddress) public onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -127,7 +164,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     }
 
     function setMaxQuantity(uint256 maxQty) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        maxQuantity = maxQty;
+        _maxQuantity = maxQty;
     }
 
     // Get the maximum quantity of tokens that can be minted
@@ -136,7 +173,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @return The maximum quantity of tokens that can be minted.
      */
     function getMaxQuantity() public view returns (uint256) {
-        return maxQuantity;
+        return _maxQuantity;
     }   
 
     // Set the royalty receivers and shares
@@ -205,34 +242,35 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     /**
      * @dev Mints a new token with the given parameters.
      * @param to The address to mint the token to.
-     * @param uri The URI of the token.
-     * @param price The price of the token. 
-     * @param collaborators The addresses of the collaborators.
-     * @param initialTokenId The initial token ID to use.
      */
-    function mint(address to, string memory uri, uint256 price, address[] memory collaborators, uint256 initialTokenId) public  onlyRole(MINTER_ROLE) { 
+    function claim(address to) public  { 
         // Check if the maximum quantity has been reached   
-        if(initialTokenId == 0) {
-            if (maxQuantity > 0 && _currentTokenId >= maxQuantity) revert MaxQuantityReached();
-            _currentTokenId++; // Use the current token ID
-        } 
-       
-        uint256 tokenId = _currentTokenId;
-        if(initialTokenId > 0) {
-            tokenId = initialTokenId;
-            _currentTokenId = initialTokenId;
+        if (_maxQuantity > 0 && _totalTokens >= _maxQuantity) revert MaxQuantityReached();
+
+        // Increment total tokens when minting
+        _totalTokens++;
+
+        // Set the new current token ID
+        uint256 tokenId = setNewCurrentTokenId(_currentTokenId);
+
+        // Check if the token can be purchased
+        bool _canPurchase = canPurchase(tokenId, to);
+        if(_canPurchase) {
+            // Distribute royalty to the receivers
+            KamiUtilities.distributeRoyalty(to, tokenId, _royaltyShares, _royaltyReceivers, _secondaryRoyaltyPercentage, _paymentToken   );
+            _mint(to, tokenId);
         }
 
-        _mint(to, tokenId);
-        _tokenData[tokenId].uri = uri;
-        _tokenData[tokenId].price = price;
-        _tokenData[tokenId].owner = msg.sender;
-        _tokenData[tokenId].authors = collaborators;
-        if (!KamiUtilities._isAddressInArray(collaborators, msg.sender)) {
-            _tokenData[tokenId].authors.push(msg.sender);
-        }
-        _isSecondaryPurchase[tokenId] = false;
-        emit Minted(tokenId);
+        // ToDo: Check access control
+
+        // Grant the OWNER_ROLE to the buyer    
+        AccessControlUpgradeable._grantRole(OWNER_ROLE, to);
+
+        // Check if the token is the first one
+        if(!_isSecondaryPurchase[tokenId] && _totalTokens > 1) _isSecondaryPurchase[tokenId] = true;
+
+        // Emit the minted event
+        emit Claimed(tokenId);
     }
 
     // Set the price of a token
@@ -241,7 +279,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @param tokenId The ID of the token.
      * @param price The new price of the token.
      */
-    function setPrice(uint256 tokenId, uint256 price) public onlyRole(PRICE_SETTER_ROLE) {
+    function setPrice(uint256 tokenId, uint256 price) public onlyRole(OWNER_ROLE) {
         _tokenData[tokenId].price = price;
     }
 
@@ -259,47 +297,21 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     /**
      * @dev Allows a user to buy a token.
      * @param tokenId The ID of the token to buy.
+     * @param to The address of the buyer.
+     * @return True if the token can be purchased, false otherwise.
      */
-    function buy(uint256 tokenId) public {
+    function canPurchase(uint256 tokenId, address to ) internal view returns (bool) {
+
+        // Check if the token is already owned by the sender    
+        if(_tokenData[tokenId].owner == to) revert TokenAlreadyOwned();
+
         // Check if the token is rented
         if(isRented(tokenId)) revert TokenRented();
 
-        // Check if the token is already owned by the sender    
-        if(_tokenData[tokenId].owner == msg.sender) revert TokenAlreadyOwned();
-
-        // Check if the token exists
-        if(bytes(_tokenData[tokenId].uri).length == 0) revert TokenNotForSale();
-
-        // Get the token data   
-        TokenData storage token = _tokenData[tokenId];
-
-        // Check if the token is for sale
-        if (token.price == 0) revert TokenNotForSale();
-
-        address currentOwner = ownerOf(tokenId); // Get the current owner from ERC721
-
-        // Check if the current owner is the contract itself
-        if (currentOwner == address(0)) revert TokenNotForSale();
-        
         // Check if the sender has enough funds
-        if(_paymentToken.balanceOf(msg.sender) < token.price) revert InsufficientFunds();
-        
-        // Transfer the funds to the contract
-        if (!_paymentToken.transferFrom(msg.sender, address(this), token.price)) revert TransferFailed();
-        
-        // Distribute the royalty
-        (, uint256 totalDistributed) = KamiUtilities.distributeRoyalty(address(this), token.price, _royaltyShares, _royaltyReceivers, _secondaryRoyaltyPercentage, _paymentToken);
-
-        // Transfer the remaining funds to the current owner
-        if(token.price > totalDistributed) {
-            if (!_paymentToken.transfer(currentOwner, token.price - totalDistributed)) revert TransferFailed();
-        }
-        
-        _transfer(currentOwner, msg.sender, tokenId);
-        token.owner = msg.sender;
-        AccessControlUpgradeable.grantRole(OWNER_ROLE, msg.sender);
-        _isSecondaryPurchase[tokenId] = true;
-        emit Bought(tokenId, msg.sender);
+        if(_paymentToken.balanceOf(to) < _initialTokenData.price) revert InsufficientFunds();
+    
+        return true;
     }
 
     // Authorize contract upgrade
@@ -307,8 +319,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @dev Authorizes an upgrade to a new implementation.
      * @param newImplementation The address of the new implementation.
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {                
-    }
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
 
     // Override tokenURI function to use ERC721URIStorage
     /**
@@ -347,15 +358,15 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @dev Updates the token ownership and balance.
      * @param to The address to transfer the token to.
      * @param tokenId The ID of the token.
-     * @param author The address of the author.
+     * @param auth The address of the author.
      */
     function _update(
         address to,
         uint256 tokenId,
-        address author
+        address auth
     ) internal virtual override(ERC721Upgradeable, ERC721EnumerableUpgradeable) returns (address) {
         if (isRented(tokenId)) revert TokenRented();
-        return super._update(to, tokenId, author);
+        return super._update(to, tokenId, auth);
     }
 
     // Override _increaseBalance function for ERC721Enumerable
@@ -412,5 +423,20 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
     function isRented(uint256 tokenId) public view returns (bool) {
         Rental storage rental = _rentals[tokenId];
         return rental.renter != address(0) && rental.rentalEndTime > uint128(block.timestamp);
+    }
+
+    // Set the new current token ID
+    /**
+     * @dev Sets the new current token ID.
+     * @param tokenId The ID of the token.
+     * @return The new current token ID.
+     */
+    function setNewCurrentTokenId(uint256 tokenId) internal returns (uint256) {
+        uint256 tid = tokenId;
+        while(bytes(_tokenData[tid].uri).length != 0) {
+            tid++;
+        }
+        _currentTokenId = tid;
+        return _currentTokenId;
     }
 }
