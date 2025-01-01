@@ -113,6 +113,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         AccessControlUpgradeable._grantRole(MINTER_ROLE, msg.sender);
         AccessControlUpgradeable._grantRole(UPGRADER_ROLE, msg.sender);
         AccessControlUpgradeable._grantRole(PRICE_SETTER_ROLE, msg.sender);
+        AccessControlUpgradeable._grantRole(OWNER_ROLE, msg.sender);
 
         _currentTokenId = 0;
         maxQuantity = 1;        

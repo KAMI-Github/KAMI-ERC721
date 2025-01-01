@@ -32,6 +32,8 @@ contract MyToken is Initializable, ERC1155Upgradeable, AccessControlUpgradeable,
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         _grantRole(MINTER_ROLE, minter);
         _grantRole(UPGRADER_ROLE, upgrader);
+        _grantRole(URI_SETTER_ROLE, defaultAdmin);
+
     }
 
     function setURI(string memory newuri) public onlyRole(URI_SETTER_ROLE) {
