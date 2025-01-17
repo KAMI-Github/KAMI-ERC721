@@ -169,7 +169,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         return _royaltyShares;
     }
 
-    function getRoaltyShareForReceiver(uint256 index) public view returns (uint256) {
+    function getRoyaltyShareForReceiver(uint256 index) public view returns (uint256) {
         return _royaltyShares[index];
     }   
 
@@ -308,7 +308,7 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
      * @dev Authorizes an upgrade to a new implementation.
      * @param newImplementation The address of the new implementation.
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {                
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {                
     }
 
     // Override tokenURI function to use ERC721URIStorage
