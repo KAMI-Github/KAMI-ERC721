@@ -257,7 +257,7 @@ contract ERC721AC is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burna
         bool _canPurchase = canPurchase(tokenId, to);
         if(_canPurchase) {
             // Distribute royalty to the receivers
-            KamiUtilities.distributeRoyalty(to, tokenId, _royaltyShares, _royaltyReceivers, _secondaryRoyaltyPercentage, _paymentToken   );
+            KamiUtilities.distributeRoyalty(getPrice(tokenId), _royaltyShares, _royaltyReceivers, _secondaryRoyaltyPercentage, _paymentToken   );
             _mint(to, tokenId);
         }
 

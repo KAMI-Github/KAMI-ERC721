@@ -169,6 +169,12 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         return _royaltyShares;
     }
 
+    // Get the royalty share for a receiver
+    /**
+     * @dev Returns the royalty share for a receiver.
+     * @param index The index of the receiver.
+     * @return The royalty share for the receiver.
+     */
     function getRoyaltyShareForReceiver(uint256 index) public view returns (uint256) {
         return _royaltyShares[index];
     }   
@@ -277,28 +283,27 @@ contract ERC721C is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Burnab
         // Check if the token is for sale
         if (token.price == 0) revert TokenNotForSale();
 
-        address currentOwner = ownerOf(tokenId); // Get the current owner from ERC721
-
-        // Check if the current owner is the contract itself
-        if (currentOwner == address(0)) revert TokenNotForSale();
-        
-        // Check if the sender has enough funds
-        if(_paymentToken.balanceOf(msg.sender) < token.price) revert InsufficientFunds();
-        
-        // Transfer the funds to the contract
+        // Transfer the funds to the contract FIRST
         if (!_paymentToken.transferFrom(msg.sender, address(this), token.price)) revert TransferFailed();
         
-        // Distribute the royalty
-        (, uint256 totalDistributed) = KamiUtilities.distributeRoyalty(address(this), token.price, _royaltyShares, _royaltyReceivers, _secondaryRoyaltyPercentage, _paymentToken);
+        // Now distribute royalties FROM THE CONTRACT
+        (, uint256 totalDistributed) = KamiUtilities.distributeRoyalty(
+            token.price, 
+            _royaltyShares, 
+            _royaltyReceivers, 
+            _secondaryRoyaltyPercentage, 
+            _paymentToken
+        );
 
-        // Transfer the remaining funds to the current owner
+        // Transfer remaining funds to the current owner
+        address currentOwner = ownerOf(tokenId);
         if(token.price > totalDistributed) {
             if (!_paymentToken.transfer(currentOwner, token.price - totalDistributed)) revert TransferFailed();
         }
         
         _transfer(currentOwner, msg.sender, tokenId);
         token.owner = msg.sender;
-        AccessControlUpgradeable.grantRole(OWNER_ROLE, msg.sender);
+        // AccessControlUpgradeable.grantRole(OWNER_ROLE, msg.sender);
         _isSecondaryPurchase[tokenId] = true;
         emit Bought(tokenId, msg.sender);
     }

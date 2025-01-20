@@ -30,7 +30,6 @@ library KamiUtilities {
     // Distribute the royalty to the receivers
     /**
      * @dev Distributes the royalty to the receivers.
-     * @param from The address to distribute the royalty from.
      * @param amount The amount to distribute.
      * @param shares The shares to distribute.
      * @param receivers The addresses to distribute the royalty to.
@@ -38,21 +37,20 @@ library KamiUtilities {
      * @param paymentToken The payment token to use for the distribution.
      * @return The distributed shares and the total distributed amount.
      */
-        function distributeRoyalty(
-            address from,
-            uint256 amount,
-            uint256[] memory shares,
-            address[] memory receivers,
-            uint256 secondaryPercentage,
-            IERC20 paymentToken
-        ) internal returns (uint256[] memory, uint256) {
+    function distributeRoyalty(
+        uint256 amount,
+        uint256[] memory shares,
+        address[] memory receivers,
+        uint256 secondaryPercentage,
+        IERC20 paymentToken
+    ) internal returns (uint256[] memory, uint256) {
         (uint256[] memory distributedAmounts, uint256 totalDistributed) = calculateRoyalty(
             secondaryPercentage > 0 ? amount * secondaryPercentage / 10000 : amount,
             shares
         );
                 
         for (uint256 i = 0; i < receivers.length; i++) {
-            paymentToken.transferFrom(from, receivers[i], distributedAmounts[i]);
+            paymentToken.transfer(receivers[i], distributedAmounts[i]);
             totalDistributed += distributedAmounts[i];
             emit RoyaltyDistributed(receivers[i], distributedAmounts[i]);
         }
