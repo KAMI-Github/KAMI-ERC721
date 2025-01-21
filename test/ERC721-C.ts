@@ -60,9 +60,9 @@ describe('ERC721CUpgradeable', function () {
 		await erc721c.setMaxQuantity(10);
 
 		// Distribute some KamiUSD tokens to addr1 and addr2 for testing
-		await kamiUSD.transfer(await addr1.getAddress(), ethersLib.parseUnits('10000', 18));
-		await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('10000', 18));
-		await kamiUSD.transfer(await erc721c.getAddress(), ethersLib.parseUnits('100', 18));
+		await kamiUSD.transfer(await addr1.getAddress(), ethersLib.parseUnits('2', 18));
+		await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('2', 18));
+		// await kamiUSD.transfer(await erc721c.getAddress(), ethersLib.parseUnits('100', 18));
 	});
 
 	it('should assign roles correctly', async function () {
@@ -96,24 +96,28 @@ describe('ERC721CUpgradeable', function () {
 		await erc721c.mint(
 			await addr1.getAddress(),
 			'https://token-uri.com/1',
-			ethersLib.parseUnits('1.0', 18),
-			[await owner.getAddress()],
+			ethersLib.parseUnits('2.0', 18),
+			[await owner.getAddress(), await addr1.getAddress()],
 			0
 		);
 
 		// Transfer some KamiUSD to addr2 for purchase
-		await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('200.0', 18));
+		await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('3.0', 18));
 
 		// Approve spending with a significantly higher allowance
 		await (kamiUSD.connect(addr2) as KamiUSD).approve(
 			await erc721c.getAddress(),
-			ethersLib.parseUnits('100.0', 18) // Increased allowance for debugging
+			ethersLib.parseUnits('2.0', 18) // Increased allowance for debugging
 		);
 
 		// Buy the token which triggers royalty distribution
 		await (erc721c.connect(addr2) as ERC721C).buy(1);
 
 		expect(await erc721c.ownerOf(1)).to.equal(await addr2.getAddress());
+		console.log('kamiUSD.balanceOf(await addr1.getAddress())', await kamiUSD.balanceOf(await addr1.getAddress()));
+		console.log('kamiUSD.balanceOf(await addr2.getAddress())', await kamiUSD.balanceOf(await addr2.getAddress()));
+		console.log('kamiUSD.balanceOf(await erc721c.getAddress())', await kamiUSD.balanceOf(await erc721c.getAddress()));
+		console.log('kamiUSD.balanceOf(await owner.getAddress())', await kamiUSD.balanceOf(await owner.getAddress()));
 	});
 
 	it('should allow upgrades by upgrader', async function () {
