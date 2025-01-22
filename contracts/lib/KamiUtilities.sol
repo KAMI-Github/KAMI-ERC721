@@ -22,7 +22,7 @@ library KamiUtilities {
             uint256 share = shares[i];
             uint256 distributedAmount = (amount * share) / 10000;
             distributedShares[i] = distributedAmount;
-            totalDistributed += distributedAmount;
+            totalDistributed += distributedAmount;            
         }
         return (distributedShares, totalDistributed);
     }

@@ -101,8 +101,13 @@ describe('ERC721CUpgradeable', function () {
 			0
 		);
 
+		erc721c.on('RoyaltyDistributed', (from, to, tokenId, event) => {
+			console.log(`RoyaltyDistributed event detected: from ${from} to ${to} for tokenId ${tokenId}`);
+			console.log(event);
+		});
+
 		// Transfer some KamiUSD to addr2 for purchase
-		await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('3.0', 18));
+		// await kamiUSD.transfer(await addr2.getAddress(), ethersLib.parseUnits('3.0', 18));
 
 		// Approve spending with a significantly higher allowance
 		await (kamiUSD.connect(addr2) as KamiUSD).approve(
@@ -114,10 +119,22 @@ describe('ERC721CUpgradeable', function () {
 		await (erc721c.connect(addr2) as ERC721C).buy(1);
 
 		expect(await erc721c.ownerOf(1)).to.equal(await addr2.getAddress());
-		console.log('kamiUSD.balanceOf(await addr1.getAddress())', await kamiUSD.balanceOf(await addr1.getAddress()));
-		console.log('kamiUSD.balanceOf(await addr2.getAddress())', await kamiUSD.balanceOf(await addr2.getAddress()));
-		console.log('kamiUSD.balanceOf(await erc721c.getAddress())', await kamiUSD.balanceOf(await erc721c.getAddress()));
-		console.log('kamiUSD.balanceOf(await owner.getAddress())', await kamiUSD.balanceOf(await owner.getAddress()));
+		console.log(
+			'kamiUSD.balanceOf(await addr1.getAddress())',
+			ethersLib.formatUnits(await kamiUSD.balanceOf(await addr1.getAddress()), 18)
+		);
+		console.log(
+			'kamiUSD.balanceOf(await addr2.getAddress())',
+			ethersLib.formatUnits(await kamiUSD.balanceOf(await addr2.getAddress()), 18)
+		);
+		console.log(
+			'kamiUSD.balanceOf(await erc721c.getAddress())',
+			ethersLib.formatUnits(await kamiUSD.balanceOf(await erc721c.getAddress()), 18)
+		);
+		console.log(
+			'kamiUSD.balanceOf(await owner.getAddress())',
+			ethersLib.formatUnits(await kamiUSD.balanceOf(await owner.getAddress()), 18)
+		);
 	});
 
 	it('should allow upgrades by upgrader', async function () {
